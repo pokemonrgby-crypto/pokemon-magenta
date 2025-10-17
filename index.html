@@ -1,0 +1,1923 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Pokémon Magenta Version</title>
+    <style>
+        /* Basic CSS for the game canvas and UI elements, mimicking Gen 1 Game Boy style */
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #333; /* Dark background outside game area */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: 'monospace', sans-serif; /* Simple monospace for retro feel */
+            color: #DDD;
+        }
+        canvas {
+            image-rendering: pixelated;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: crisp-edges;
+            border: 2px solid #555;
+            background-color: #000; /* Game Boy default background */
+            width: 768px; /* Scaled up from 320px for modern screens */
+            height: 672px; /* Scaled up from 288px */
+            box-sizing: content-box; /* Ensure border doesn't shrink canvas */
+        }
+        #game-container {
+            position: relative;
+            display: inline-block; /* To allow absolute positioning of UI elements relative to canvas */
+        }
+
+        /* Dialogue Box Styling */
+        #dialogue-box {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 70%;
+            height: 100px;
+            background-color: #E0E0E0; /* Light Game Boy background */
+            border: 4px solid #000;
+            color: #000;
+            padding: 10px;
+            font-family: 'monospace';
+            font-size: 16px;
+            display: none; /* Hidden by default */
+            box-sizing: border-box;
+            z-index: 100;
+        }
+        #dialogue-text {
+            margin: 0;
+            height: 60px; /* Space for text */
+            overflow: hidden;
+        }
+        #dialogue-next {
+            float: right;
+            padding: 5px 10px;
+            background-color: #C0C0C0;
+            border: 2px solid #000;
+            font-family: 'monospace';
+            font-size: 14px;
+            cursor: pointer;
+        }
+        #dialogue-next:hover {
+            background-color: #A0A0A0;
+        }
+
+        /* Battle UI Styling */
+        #battle-ui {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 30%; /* Take up bottom portion of canvas */
+            background-color: #E0E0E0;
+            border-top: 4px solid #000;
+            color: #000;
+            font-family: 'monospace';
+            font-size: 14px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-around;
+            padding: 10px;
+            box-sizing: border-box;
+            display: none; /* Hidden by default */
+            z-index: 100;
+        }
+        #battle-message {
+            height: 30%;
+            display: flex;
+            align-items: center;
+            padding: 0 10px;
+            border-bottom: 2px solid #A0A0A0;
+        }
+        #battle-stats {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            padding: 5px 10px;
+            height: 30%;
+        }
+        .hp-bar-container {
+            width: 80px;
+            height: 8px;
+            background-color: #555;
+            border: 1px solid #000;
+            position: relative;
+            display: inline-block;
+            margin-left: 5px;
+        }
+        .hp-bar {
+            height: 100%;
+            background-color: #0F0; /* Green HP */
+            width: 100%;
+        }
+        #enemy-pokemon-stats {
+             text-align: right;
+        }
+        #player-pokemon-stats {
+            text-align: left;
+        }
+
+        #battle-menu, #battle-fight-menu {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            height: 40%;
+            border-top: 2px solid #A0A0A0;
+            padding-top: 5px;
+        }
+        .battle-option {
+            width: 45%;
+            padding: 5px;
+            margin: 2px;
+            border: 2px solid #000;
+            background-color: #C0C0C0;
+            text-align: center;
+            cursor: pointer;
+            box-sizing: border-box;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .battle-option:hover {
+            background-color: #A0A0A0;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+        <div id="dialogue-box">
+            <p id="dialogue-text"></p>
+            <button id="dialogue-next">Next</button>
+        </div>
+
+        <div id="battle-ui">
+            <div id="battle-message"></div>
+            <div id="battle-stats">
+                <div id="player-pokemon-stats">
+                    <span id="player-pokemon-name"></span> Lv.<span id="player-pokemon-level"></span><br>
+                    HP: <div class="hp-bar-container"><div id="player-pokemon-hp-bar" class="hp-bar"></div></div> <span id="player-pokemon-current-hp"></span>/<span id="player-pokemon-max-hp"></span>
+                </div>
+                <div id="enemy-pokemon-stats">
+                    <span id="enemy-pokemon-name"></span> Lv.<span id="enemy-pokemon-level"></span><br>
+                    HP: <div class="hp-bar-container" style="float: right;"><div id="enemy-pokemon-hp-bar" class="hp-bar"></div></div>
+                </div>
+            </div>
+            <div id="battle-menu">
+                <div class="battle-option" data-action="FIGHT">FIGHT</div>
+                <div class="battle-option" data-action="PKMN">PKMN</div>
+                <div class="battle-option" data-action="ITEM">ITEM</div>
+                <div class="battle-option" data-action="RUN">RUN</div>
+            </div>
+            <div id="battle-fight-menu" style="display: none;">
+                <!-- Moves will be dynamically added here -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- GLOBAL GAME CONFIGURATION AND DATA ---
+        const GAME_CONFIG = {
+            TILE_SIZE: 16, // Pixel size of a single tile
+            MAP_WIDTH_TILES: 20, // Canvas width in tiles (20 * 16 = 320px)
+            MAP_HEIGHT_TILES: 18, // Canvas height in tiles (18 * 16 = 288px)
+            PLAYER_SPEED: 2, // Pixels per frame during movement for smooth animation
+            TEXT_SPEED: 50, // Milliseconds per character for dialogue
+            WILD_ENCOUNTER_CHANCE: 0.1 // 10% chance per step in tall grass
+        };
+
+        // Gen 1 Type Effectiveness Chart (Damage Multipliers)
+        // Order: NORMAL, FIRE, WATER, GRASS, ELECTRIC, ICE, FIGHTING, POISON, GROUND, FLYING, PSYCHIC, BUG, ROCK, GHOST, DRAGON
+        const TYPE_CHART = {
+            NORMAL:     [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0.5, 0, 1],
+            FIRE:       [1, 0.5, 0.5, 2, 1, 2, 1, 1, 1, 1, 1, 2, 0.5, 1, 0.5],
+            WATER:      [1, 2, 0.5, 0.5, 1, 1, 1, 1, 2, 1, 1, 1, 2, 1, 0.5],
+            GRASS:      [1, 0.5, 2, 0.5, 1, 1, 1, 0.5, 2, 0.5, 1, 0.5, 2, 1, 0.5],
+            ELECTRIC:   [1, 1, 2, 0.5, 0.5, 1, 1, 1, 0, 2, 1, 1, 1, 1, 0.5],
+            ICE:        [1, 0.5, 0.5, 2, 1, 0.5, 1, 1, 2, 2, 1, 1, 1, 1, 2],
+            FIGHTING:   [2, 1, 1, 1, 1, 2, 1, 0.5, 1, 0.5, 0.5, 0.5, 2, 0, 1],
+            POISON:     [1, 1, 1, 2, 1, 1, 1, 0.5, 0.5, 1, 1, 1, 0.5, 0.5, 1],
+            GROUND:     [1, 2, 1, 0.5, 2, 1, 1, 2, 1, 0, 1, 0.5, 2, 1, 1],
+            FLYING:     [1, 1, 1, 2, 0.5, 2, 2, 1, 1, 1, 1, 2, 0.5, 1, 1],
+            PSYCHIC:    [1, 1, 1, 1, 1, 1, 2, 2, 1, 1, 0.5, 2, 1, 0, 1], // Gen 1: Bug is 2x vs Psychic, Ghost is 0
+            BUG:        [1, 0.5, 1, 2, 1, 1, 0.5, 2, 1, 0.5, 0.5, 1, 1, 0.5, 1], // Gen 1: Psychic is 0.5x vs Bug, Poison 0.5x, Fire 2x, Flying 2x
+            ROCK:       [1, 2, 1, 1, 1, 2, 0.5, 1, 0.5, 2, 1, 2, 1, 1, 1],
+            GHOST:      [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 2, 1], // Gen 1: Ghost is 2x vs Ghost, 0 vs Normal, 0 vs Psychic
+            DRAGON:     [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2],
+        };
+
+        const TYPE_NAMES = Object.keys(TYPE_CHART); // Used to get index for type effectiveness lookup
+
+        const STATUS_EFFECTS = {
+            NONE: 'None',
+            POISON: 'Poison',
+            PARALYZE: 'Paralyze',
+            SLEEP: 'Sleep',
+            BURN: 'Burn',
+            FREEZE: 'Freeze',
+            CONFUSED: 'Confused', // Custom status for confusion logic
+            LEECH_SEEDED: 'Leech Seeded' // Custom status for Leech Seed logic
+        };
+
+        // --- POKEMON & MOVES DATA (Simplified and Exampled) ---
+        // In a full game, this would be a massive JSON object, potentially loaded from external files
+        // if not for the "single HTML file" constraint.
+        // For this example, we'll include a few Gen 1 and a few Fakemon.
+        // Base Stats: HP, Atk, Def, Sp.Atk, Sp.Def, Speed (Gen 1 combines Sp.Atk/Sp.Def into 'Special')
+        // We'll use Gen 1's 'Special' stat for simplicity.
+        // Pokedex: name, type(s), base_stats {hp, atk, def, sp, spd}, learnset [{level, move}], evolution {level, item, to_id}, description, sprites (front, back)
+
+        const POKEMON_DATA = {
+            // GEN 1 EXAMPLES
+            'BULBASAUR': {
+                name: 'Bulbasaur', type: ['GRASS', 'POISON'], base_stats: {hp: 45, atk: 49, def: 49, sp: 65, spd: 45},
+                learnset: [{level: 1, move: 'TACKLE'}, {level: 1, move: 'GROWL'}, {level: 7, move: 'LEECH_SEED'}, {level: 13, move: 'VINE_WHIP'}],
+                evolution: {level: 16, to: 'IVYSAUR'},
+                description: "A strange seed was planted on its back at birth. The plant sprouts and grows with this Pokémon.",
+                sprites: {
+                    front: 'data:image/svg+xml;base64,' + btoa('<svg viewBox="0 0 16 16" width="64" height="64" style="background:#000;"><rect x="6" y="8" width="4" height="4" fill="#0F0"/><rect x="7" y="5" width="2" height="2" fill="#0F0"/><rect x="5" y="10" width="6" height="4" fill="#0A0"/><circle cx="8" cy="14" r="2" fill="#000"/></svg>'),
+                    back: 'data:image/svg+xml;base64,' + btoa('<svg viewBox="0 0 16 16" width="64" height="64" style="background:#000;"><rect x="6" y="10" width="4" height="4" fill="#0F0"/><rect x="7" y="7" width="2" height="2" fill="#0F0"/><rect x="5" y="12" width="6" height="4" fill="#0A0"/><circle cx="8" cy="15" r="2" fill="#000"/></svg>')
+                }
+            },
+            'IVYSAUR': {
+                name: 'Ivysaur', type: ['GRASS', 'POISON'], base_stats: {hp: 60, atk: 62, def: 63, sp: 80, spd: 60},
+                learnset: [{level: 1, move: 'TACKLE'}, {level: 1, move: 'GROWL'}, {level: 7, move: 'LEECH_SEED'}, {level: 13, move: 'VINE_WHIP'}, {level: 20, move: 'RAZOR_LEAF'}],
+                evolution: {level: 32, to: 'VENUSAUR'},
+                description: "When the bulb on its back grows large, it appears to lose the ability to stand on its hind legs.",
+                sprites: {
+                    front: 'data:image/svg+xml;base64,' + btoa('<svg viewBox="0 0 16 16" width="64" height="64" style="background:#000;"><rect x="6" y="6" width="4" height="4" fill="#0F0"/><rect x="7" y="3" width="2" height="2" fill="#0F0"/><rect x="5" y="8" width="6" height="4" fill="#0A0"/><circle cx="8" cy="12" r="2" fill="#000"/></svg>'),
+                    back: 'data:image/svg+xml;base64,' + btoa('<svg viewBox="0 0 16 16" width="64" height="64" style="background:#000;"><rect x="6" y="8" width="4" height="4" fill="#0F0"/><rect x="7" y="5" width="2" height="2" fill="#0F0"/><rect x="5" y="10" width="6" height="4" fill="#0A0"/><circle cx="8" cy="13" r="2" fill="#000"/></svg>')
+                }
+            },
+            'CHARMANDER': {
+                name: 'Charmander', type: ['FIRE'], base_stats: {hp: 39, atk: 52, def: 43, sp: 50, spd: 65},
+                learnset: [{level: 1, move: 'SCRATCH'}, {level: 1, move: 'GROWL'}, {level: 9, move: 'EMBER'}],
+                evolution: {level: 16, to: 'CHARMELEON'},
+                description: "Obviously prefers hot places. When it rains, steam is said to spout from the tip of its tail.",
+                sprites: {
+                    front: 'data:image/svg+xml;base64,' + btoa('<svg viewBox="0 0 16 16" width="64" height="64" style="background:#000;"><rect x="7" y="7" width="4" height="4" fill="#F80"/><rect x="9" y="11" width="2" height="2" fill="#F00"/></svg>'),
+                    back: 'data:image/svg+xml;base64,' + btoa('<svg viewBox="0 0 16 16" width="64" height="64" style="background:#000;"><rect x="7" y="9" width="4" height="4" fill="#F80"/><rect x="9" y="13" width="2" height="2" fill="#F00"/></svg>')
+                }
+            },
+            'SQUIRTLE': {
+                name: 'Squirtle', type: ['WATER'], base_stats: {hp: 44, atk: 48, def: 65, sp: 50, spd: 43},
+                learnset: [{level: 1, move: 'TACKLE'}, {level: 1, move: 'TAIL_WHIP'}, {level: 8, move: 'BUBBLE'}],
+                evolution: {level: 16, to: 'WARTORTLE'},
+                description: "After birth, its back swells and hardens into a shell. Powerfully sprays foam from its mouth.",
+                sprites: {
+                    front: 'data:image/svg+xml;base64,' + btoa('<svg viewBox="0 0 16 16" width="64" height="64" style="background:#000;"><rect x="6" y="8" width="4" height="4" fill="#00F"/><rect x="5" y="10" width="6" height="4" fill="#00A"/></svg>'),
+                    back: 'data:image/svg+xml;base64,' + btoa('<svg viewBox="0 0 16 16" width="64" height="64" style="background:#000;"><rect x="6" y="10" width="4" height="4" fill="#00F"/><rect x="5" y="12" width="6" height="4" fill="#00A"/></svg>')
+                }
+            },
+            'PIKACHU': {
+                name: 'Pikachu', type: ['ELECTRIC'], base_stats: {hp: 35, atk: 55, def: 40, sp: 50, spd: 90},
+                learnset: [{level: 1, move: 'THUNDERSHOCK'}, {level: 1, move: 'GROWL'}, {level: 8, move: 'QUICK_ATTACK'}],
+                evolution: {item: 'THUNDER_STONE', to: 'RAICHU'},
+                description: "When several PIKACHU gather, their electricity could build and cause a lightning storm.",
+                sprites: {
+                    front: 'data:image/svg+xml;base64,' + btoa('<svg viewBox="0 0 16 16" width="64" height="64" style="background:#000;"><rect x="6" y="7" width="4" height="4" fill="#FF0"/><circle cx="5" cy="8" r="1" fill="#F00"/><circle cx="11" cy="8" r="1" fill="#F00"/></svg>'),
+                    back: 'data:image/svg+xml;base64,' + btoa('<svg viewBox="0 0 16 16" width="64" height="64" style="background:#000;"><rect x="6" y="9" width="4" height="4" fill="#FF0"/><circle cx="5" cy="10" r="1" fill="#F00"/><circle cx="11" cy="10" r="1" fill="#F00"/></svg>')
+                }
+            },
+            'RAICHU': {
+                name: 'Raichu', type: ['ELECTRIC'], base_stats: {hp: 60, atk: 90, def: 55, sp: 90, spd: 100},
+                learnset: [{level: 1, move: 'THUNDERSHOCK'}, {level: 1, move: 'GROWL'}, {level: 8, move: 'QUICK_ATTACK'}, {level: 1, move: 'THUNDERBOLT'}],
+                evolution: null,
+                description: "Its tail discharges electricity into the ground, protecting it from its own high voltage power.",
+                sprites: {
+                    front: 'data:image/svg+xml;base64,' + btoa('<svg viewBox="0 0 16 16" width="64" height="64" style="background:#000;"><rect x="6" y="6" width="4" height="6" fill="#FF0"/><circle cx="5" cy="8" r="1" fill="#F00"/><circle cx="11" cy="8" r="1" fill="#F00"/><rect x="8" y="12" width="2" height="2" fill="#F80"/></svg>'),
+                    back: 'data:image/svg+xml;base64,' + btoa('<svg viewBox="0 0 16 16" width="64" height="64" style="background:#000;"><rect x="6" y="8" width="4" height="6" fill="#FF0"/><circle cx="5" cy="10" r="1" fill="#F00"/><circle cx="11" cy="10" r="1" fill="#F00"/><rect x="8" y="14" width="2" height="2" fill="#F80"/></svg>')
+                }
+            },
+            // ... (The remaining 145 Gen 1 Pokémon would follow here)
+
+            // FAKEMON EXAMPLES (2 out of 30 requested)
+            'MAGENTALIN': {
+                name: 'Magentalin', type: ['PSYCHIC', 'NORMAL'], base_stats: {hp: 50, atk: 40, def: 50, sp: 70, spd: 60},
+                learnset: [{level: 1, move: 'CONFUSION'}, {level: 1, move: 'TACKLE'}, {level: 10, move: 'PSYWAVE'}],
+                evolution: {level: 28, to: 'MAGESTALIN'},
+                description: "This small Pokémon hums a gentle tune that calms those around it. Its psychic energy is still developing.",
+                sprites: {
+                    front: 'data:image/svg+xml;base64,' + btoa('<svg viewBox="0 0 16 16" width="64" height="64" style="background:#000;"><circle cx="8" cy="8" r="6" fill="#F0F"/><rect x="7" y="2" width="2" height="2" fill="#FFF"/><rect x="7" y="12" width="2" height="2" fill="#FFF"/></svg>'),
+                    back: 'data:image/svg+xml;base64,' + btoa('<svg viewBox="0 0 16 16" width="64" height="64" style="background:#000;"><circle cx="8" cy="8" r="6" fill="#C0C"/><rect x="7" y="3" width="2" height="2" fill="#DDD"/><rect x="7" y="13" width="2" height="2" fill="#DDD"/></svg>')
+                }
+            },
+            'MAGESTALIN': {
+                name: 'Magestalin', type: ['PSYCHIC', 'FIGHTING'], base_stats: {hp: 80, atk: 70, def: 75, sp: 110, spd: 80},
+                learnset: [{level: 1, move: 'CONFUSION'}, {level: 1, move: 'TACKLE'}, {level: 10, move: 'PSYWAVE'}, {level: 28, move: 'PSYCHIC'}],
+                evolution: null,
+                description: "Having mastered its psychic abilities, it can project calming or disorienting waves. It is fiercely protective.",
+                sprites: {
+                    front: 'data:image/svg+xml;base64,' + btoa('<svg viewBox="0 0 16 16" width="64" height="64" style="background:#000;"><circle cx="8" cy="8" r="7" fill="#F0F"/><rect x="6" y="1" width="4" height="4" fill="#FFF"/><rect x="6" y="11" width="4" height="4" fill="#FFF"/><rect x="2" y="6" width="2" height="4" fill="#F0F"/><rect x="12" y="6" width="2" height="4" fill="#F0F"/></svg>'),
+                    back: 'data:image/svg+xml;base64,' + btoa('<svg viewBox="0 0 16 16" width="64" height="64" style="background:#000;"><circle cx="8" cy="8" r="7" fill="#C0C"/><rect x="6" y="2" width="4" height="4" fill="#DDD"/><rect x="6" y="12" width="4" height="4" fill="#DDD"/><rect x="2" y="7" width="2" height="4" fill="#C0C"/><rect x="12" y="7" width="2" height="4" fill="#C0C"/></svg>')
+                }
+            },
+            'AQUAMANDER': {
+                name: 'Aquamander', type: ['WATER', 'DRAGON'], base_stats: {hp: 60, atk: 70, def: 60, sp: 65, spd: 55},
+                learnset: [{level: 1, move: 'WATER_GUN'}, {level: 1, move: 'LEER'}, {level: 12, move: 'DRAGON_RAGE'}],
+                evolution: {level: 30, to: 'SEADRAKE'},
+                description: "A swift swimmer, Aquamander's scales shimmer like sapphires. It guards ancient underwater currents.",
+                sprites: {
+                    front: 'data:image/svg+xml;base64,' + btoa('<svg viewBox="0 0 16 16" width="64" height="64" style="background:#000;"><path d="M4 8 L12 8 L8 4 L4 8 Z" fill="#00F"/><rect x="6" y="8" width="4" height="6" fill="#00A"/></svg>'),
+                    back: 'data:image/svg+xml;base64,' + btoa('<svg viewBox="0 0 16 16" width="64" height="64" style="background:#000;"><path d="M4 10 L12 10 L8 6 L4 10 Z" fill="#00F"/><rect x="6" y="10" width="4" height="6" fill="#00A"/></svg>')
+                }
+            },
+            'SEADRAKE': {
+                name: 'Seadrake', type: ['WATER', 'DRAGON'], base_stats: {hp: 90, atk: 100, def: 80, sp: 95, spd: 85},
+                learnset: [{level: 1, move: 'WATER_GUN'}, {level: 1, move: 'LEER'}, {level: 12, move: 'DRAGON_RAGE'}, {level: 30, move: 'HYDRO_PUMP'}],
+                evolution: null,
+                description: "This powerful dragon rules the deep oceans, its roar capable of stirring massive tides. Its scales are almost impenetrable.",
+                sprites: {
+                    front: 'data:image/svg+xml;base64,' + btoa('<svg viewBox="0 0 16 16" width="64" height="64" style="background:#000;"><path d="M4 6 L12 6 L8 2 L4 6 Z" fill="#00F"/><rect x="5" y="6" width="6" height="8" fill="#00A"/><rect x="7" y="14" width="2" height="2" fill="#005"/></svg>'),
+                    back: 'data:image/svg+xml;base64,' + btoa('<svg viewBox="0 0 16 16" width="64" height="64" style="background:#000;"><path d="M4 8 L12 8 L8 4 L4 8 Z" fill="#00F"/><rect x="5" y="8" width="6" height="8" fill="#00A"/><rect x="7" y="16" width="2" height="2" fill="#005"/></svg>')
+                }
+            }
+            // ... (The remaining 28 Fakemon would follow here)
+        };
+
+        const MOVES_DATA = {
+            // Name, Type, Category (PHYSICAL/SPECIAL/STATUS), Power, Accuracy, PP, Effect
+            'TACKLE':       {name: 'Tackle', type: 'NORMAL', category: 'PHYSICAL', power: 35, accuracy: 95, pp: 35, effect: null},
+            'GROWL':        {name: 'Growl', type: 'NORMAL', category: 'STATUS', power: 0, accuracy: 100, pp: 40, effect: 'LOWER_ATTACK_1'},
+            'LEECH_SEED':   {name: 'Leech Seed', type: 'GRASS', category: 'STATUS', power: 0, accuracy: 90, pp: 10, effect: 'LEECH_SEED'},
+            'VINE_WHIP':    {name: 'Vine Whip', type: 'GRASS', category: 'PHYSICAL', power: 45, accuracy: 100, pp: 25, effect: null},
+            'SCRATCH':      {name: 'Scratch', type: 'NORMAL', category: 'PHYSICAL', power: 40, accuracy: 100, pp: 35, effect: null},
+            'EMBER':        {name: 'Ember', type: 'FIRE', category: 'SPECIAL', power: 40, accuracy: 100, pp: 25, effect: 'BURN_CHANCE_10'},
+            'TAIL_WHIP':    {name: 'Tail Whip', type: 'NORMAL', category: 'STATUS', power: 0, accuracy: 100, pp: 30, effect: 'LOWER_DEFENSE_1'},
+            'BUBBLE':       {name: 'Bubble', type: 'WATER', category: 'SPECIAL', power: 20, accuracy: 100, pp: 30, effect: 'LOWER_SPEED_CHANCE_10'},
+            'THUNDERSHOCK': {name: 'Thundershock', type: 'ELECTRIC', category: 'SPECIAL', power: 40, accuracy: 100, pp: 30, effect: 'PARALYZE_CHANCE_10'},
+            'QUICK_ATTACK': {name: 'Quick Attack', type: 'NORMAL', category: 'PHYSICAL', power: 40, accuracy: 100, pp: 30, effect: 'PRIORITY_1'},
+            'CONFUSION':    {name: 'Confusion', type: 'PSYCHIC', category: 'SPECIAL', power: 50, accuracy: 100, pp: 25, effect: 'CONFUSE_CHANCE_10'},
+            'PSYWAVE':      {name: 'Psywave', type: 'PSYCHIC', category: 'SPECIAL', power: 0, accuracy: 80, pp: 15, effect: 'VARIABLE_DAMAGE_LVL'}, // Gen 1 Psywave varies damage based on user level
+            'WATER_GUN':    {name: 'Water Gun', type: 'WATER', category: 'SPECIAL', power: 40, accuracy: 100, pp: 25, effect: null},
+            'LEER':         {name: 'Leer', type: 'NORMAL', category: 'STATUS', power: 0, accuracy: 100, pp: 30, effect: 'LOWER_DEFENSE_1'},
+            'DRAGON_RAGE':  {name: 'Dragon Rage', type: 'DRAGON', category: 'SPECIAL', power: 40, accuracy: 100, pp: 10, effect: 'FIXED_DAMAGE_40'},
+            'RAZOR_LEAF':   {name: 'Razor Leaf', type: 'GRASS', category: 'PHYSICAL', power: 55, accuracy: 95, pp: 25, effect: 'HIGH_CRIT'},
+            'PSYCHIC':      {name: 'Psychic', type: 'PSYCHIC', category: 'SPECIAL', power: 90, accuracy: 100, pp: 10, effect: 'LOWER_SPECIAL_CHANCE_10'},
+            'THUNDERBOLT':  {name: 'Thunderbolt', type: 'ELECTRIC', category: 'SPECIAL', power: 90, accuracy: 100, pp: 15, effect: 'PARALYZE_CHANCE_10'},
+            'HYDRO_PUMP':   {name: 'Hydro Pump', type: 'WATER', category: 'SPECIAL', power: 110, accuracy: 80, pp: 5, effect: null},
+            // ... (many more moves would be added here)
+        };
+
+        const ITEMS_DATA = {
+            'POTION': {name: 'Potion', type: 'healing', effect: {hp_restore: 20}, description: 'Restores 20 HP.'},
+            'SUPER_POTION': {name: 'Super Potion', type: 'healing', effect: {hp_restore: 50}, description: 'Restores 50 HP.'},
+            'POKE_BALL': {name: 'Poké Ball', type: 'capture', effect: {catch_rate_modifier: 1}, description: 'A device for catching wild Pokémon.'},
+            'GREAT_BALL': {name: 'Great Ball', type: 'capture', effect: {catch_rate_modifier: 1.5}, description: 'A good, high-performance Poké Ball.'},
+            'THUNDER_STONE': {name: 'Thunder Stone', type: 'evolution', effect: {evolve_type: 'THUNDER_STONE'}, description: 'A peculiar stone that makes certain species of Pokémon evolve.'},
+            'CEDARS_PARCEL': {name: 'Cedar\'s Parcel', type: 'key_item', description: 'A parcel to be delivered to Professor Cedar.'}
+        };
+
+        // --- MAPS DATA (Conceptual for Sylon Region) ---
+        // Tiles: 0 = walkable grass, 1 = tree (collision), 2 = path, 3 = water (collision), 4 = house wall, 5 = house door, 6 = sign, 7 = NPC, 8 = tall grass (wild encounter)
+        // This is a minimal example. A real map would have many more tiles and complex structures.
+
+        const MAPS = {
+            'STARTER_TOWN': {
+                name: 'Starter Town',
+                map_data: [
+                    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                    [1,4,4,4,4,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                    [1,4,5,4,4,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1], /* Player house */
+                    [1,4,4,4,4,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                    [1,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1],
+                    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                ],
+                wild_encounters: [], // No wild encounters in town
+                events: [
+                    {x: 3, y: 2, type: 'door', target_map: 'PLAYER_HOUSE', target_x: 2, target_y: 3},
+                    {x: 19, y: 4, type: 'transition', target_map: 'ROUTE_1', target_x: 0, target_y: 4} // East exit to Route 1
+                ],
+                npcs: [
+                    {x: 7, y: 7, sprite: 'NPC_MALE', dialogue: ["Welcome to Starter Town!", "This is the Sylon Region!"]},
+                    {x: 12, y: 2, sprite: 'NPC_FEMALE', dialogue: ["There are rumors of strange energy readings...", "Coming from some ancient ruins."]}
+                ]
+            },
+            'PLAYER_HOUSE': {
+                name: "Player's House",
+                map_data: [
+                    [4,4,4,4,4],
+                    [4,0,0,0,4],
+                    [4,0,0,0,4],
+                    [4,5,0,0,4], // Door back to town
+                    [4,4,4,4,4]
+                ],
+                wild_encounters: [],
+                events: [
+                    {x: 1, y: 3, type: 'door', target_map: 'STARTER_TOWN', target_x: 3, target_y: 2},
+                    {x: 2, y: 2, type: 'object', interaction: 'parent_note', dialogue: ["A crumpled note from Mom:", "'Went to the Chrono Islands, darling! Found clues about those ancient legends. Don't worry, just a research trip!'"], flag_set: 'read_parent_note'}
+                ],
+                npcs: [
+                    // Mom is removed from the map after leaving the note, or if flag is set. For simplicity, she's always there.
+                    {x: 3, y: 1, sprite: 'NPC_MOM', dialogue: ["Oh, sweetie, your dad left another cryptic note about those ruins...", "He's always off exploring!"]}
+                ]
+            },
+            'ROUTE_1': {
+                name: 'Route 1',
+                map_data: [
+                    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                    [1,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,1],
+                    [1,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,1],
+                    [1,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,1],
+                    [2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2], // Player enters here from Starter Town (x:0, y:4)
+                    [1,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,1],
+                    [1,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,1],
+                    [1,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,1],
+                    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+                ],
+                wild_encounters: [{pokemon: 'BULBASAUR', min_level: 2, max_level: 5, chance: 0.3}, {pokemon: 'MAGENTALIN', min_level: 3, max_level: 4, chance: 0.1}],
+                events: [
+                    {x: 19, y: 4, type: 'transition', target_map: 'CITY_NORTH', target_x: 0, target_y: 4} // Placeholder: North City
+                ],
+                npcs: [
+                    {x: 5, y: 6, sprite: 'TRAINER_MALE', dialogue: ["Hey, you! Wanna battle?", "Let's see what you've got!"], team: [{species: 'MAGENTALIN', level: 5}], has_fought: false},
+                    {x: 15, y: 2, sprite: 'NPC_OLDMAN', dialogue: ["Tall grass is full of wild Pokémon!", "Always be prepared!"]}
+                ]
+            },
+            'CITY_NORTH': { // Placeholder for the next town
+                name: 'North City',
+                map_data: [
+                    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                    [2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1], /* Player enters here from Route 1 (x:0, y:4) */
+                    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+                ],
+                wild_encounters: [],
+                events: [],
+                npcs: [
+                    {x: 3, y: 1, sprite: 'NPC_FEMALE', dialogue: ["This is North City!", "The Gym Leader here specializes in Normal-type Pokémon."]},
+                    {x: 10, y: 5, sprite: 'NPC_MALE', dialogue: ["Have you heard about Team Cipher?", "They're causing trouble, always looking for ancient artifacts..."]}
+                ]
+            }
+            // ... (13 more towns, 12 gyms, Elite Four, Chrono Islands maps would go here,
+            //      each with their own map_data, wild_encounters, events, and npcs.
+            //      Gyms would have a 'gym' event type, potentially with a Gym Leader NPC.)
+        };
+
+        // Base64 encoded SVG for tile placeholders and sprites. Actual pixel art would be much more complex.
+        const TILE_ASSETS = {
+            0: 'data:image/svg+xml;base64,' + btoa('<svg viewBox="0 0 16 16" width="16" height="16"><rect x="0" y="0" width="16" height="16" fill="#A0C080"/></svg>'), // Grass (walkable)
+            1: 'data:image/svg+xml;base64,' + btoa('<svg viewBox="0 0 16 16" width="16" height="16"><rect x="0" y="0" width="16" height="16" fill="#608040"/></svg>'), // Tree (collision)
+            2: 'data:image/svg+xml;base64,' + btoa('<svg viewBox="0 0 16 16" width="16" height="16"><rect x="0" y="0" width="16" height="16" fill="#C0A060"/></svg>'), // Path (walkable)
+            3: 'data:image/svg+xml;base64,' + btoa('<svg viewBox="0 0 16 16" width="16" height="16"><rect x="0" y="0" width="16" height="16" fill="#4060C0"/></svg>'), // Water (collision)
+            4: 'data:image/svg+xml;base64,' + btoa('<svg viewBox="0 0 16 16" width="16" height="16"><rect x="0" y="0" width="16" height="16" fill="#808080"/></svg>'), // House Wall (collision)
+            5: 'data:image/svg+xml;base64,' + btoa('<svg viewBox="0 0 16 16" width="16" height="16"><rect x="0" y="0" width="16" height="16" fill="#C08040"/></svg>'), // Door (event)
+            6: 'data:image/svg+xml;base64,' + btoa('<svg viewBox="0 0 16 16" width="16" height="16"><rect x="0" y="0" width="16" height="16" fill="#E0E0E0"/></svg>'), // Sign (object event)
+            8: 'data:image/svg+xml;base64,' + btoa('<svg viewBox="0 0 16 16" width="16" height="16"><rect x="0" y="0" width="16" height="16" fill="#80B060"/></svg>'), // Tall Grass (wild encounter)
+            // Player sprite placeholder
+            'PLAYER': 'data:image/svg+xml;base64,' + btoa('<svg viewBox="0 0 16 16" width="16" height="16"><circle cx="8" cy="8" r="7" fill="#F00"/></svg>'), // Red circle for player
+            // NPC sprite placeholders
+            'NPC_MALE': 'data:image/svg+xml;base64,' + btoa('<svg viewBox="0 0 16 16" width="16" height="16"><circle cx="8" cy="8" r="7" fill="#00F"/></svg>'), // Blue circle for NPC Male
+            'NPC_FEMALE': 'data:image/svg+xml;base64,' + btoa('<svg viewBox="0 0 16 16" width="16" height="16"><circle cx="8" cy="8" r="7" fill="#F0F"/></svg>'), // Magenta circle for NPC Female
+            'NPC_MOM': 'data:image/svg+xml;base64,' + btoa('<svg viewBox="0 0 16 16" width="16" height="16"><circle cx="8" cy="8" r="7" fill="#F08"/></svg>'), // Pink circle for Mom
+            'NPC_OLDMAN': 'data:image/svg+xml;base64,' + btoa('<svg viewBox="0 0 16 16" width="16" height="16"><circle cx="8" cy="8" r="7" fill="#808"/></svg>'), // Purple circle for Old Man
+            'TRAINER_MALE': 'data:image/svg+xml;base64,' + btoa('<svg viewBox="0 0 16 16" width="16" height="16"><circle cx="8" cy="8" r="7" fill="#0FF"/></svg>') // Cyan circle for Trainer
+        };
+
+        // --- GLOBAL GAME STATE ---
+        const GAME_STATE = {
+            currentMap: 'STARTER_TOWN',
+            playerX: 3,
+            playerY: 3,
+            playerDirection: 'down', // 'up', 'down', 'left', 'right'
+            isMoving: false,
+            movementProgress: 0, // Pixels moved in current tile transition
+            dialogueActive: false,
+            inBattle: false,
+            playerParty: [], // Array of Pokemon objects
+            playerPC: [], // Array of Pokemon objects not in party
+            inventory: {'POKE_BALL': 5, 'POTION': 2, 'CEDARS_PARCEL': 1}, // Item counts
+            flags: {
+                'has_starter': false,
+                'delivered_cedars_parcel': false,
+                'defeated_trainer_route1': false
+            },
+            rival: {
+                name: "Rival",
+                team: [] // Rival's Pokémon team
+            },
+            currentBattle: null, // Holds BattleEngine instance
+            // ... more state variables like Gym badges, Pokedex completion, story progress
+        };
+
+        // --- HELPER FUNCTIONS ---
+        function clamp(value, min, max) {
+            return Math.max(min, Math.min(value, max));
+        }
+
+        // --- POKEMON CLASS ---
+        class Pokemon {
+            constructor(speciesId, level, isWild = false) {
+                const data = POKEMON_DATA[speciesId];
+                if (!data) {
+                    console.error('Unknown Pokémon species:', speciesId);
+                    return;
+                }
+
+                this.speciesId = speciesId;
+                this.name = data.name;
+                this.type = data.type;
+                this.level = level;
+                this.isWild = isWild;
+
+                // Base stats (Gen 1 IVs/EVs simplified)
+                // Gen 1 IVs are 0-15. We'll set them to max for simplified stats.
+                this.ivs = {hp: 15, atk: 15, def: 15, sp: 15, spd: 15};
+                // Gen 1 EV system is different (Stat Experience). Simplified to 0 for now.
+                this.evs = {hp: 0, atk: 0, def: 0, sp: 0, spd: 0};
+
+                this.calculateStats();
+                this.currentHp = this.maxHp;
+                this.status = STATUS_EFFECTS.NONE;
+                this.moves = this.generateLearnset(level);
+                this.currentPP = {};
+                this.moves.forEach(move => this.currentPP[move.name] = MOVES_DATA[move.name].pp);
+
+                this.statModifiers = { // Gen 1 stat stages (-6 to +6)
+                    atk: 0, def: 0, sp: 0, spd: 0, acc: 0, eva: 0
+                };
+                // Status-related counters
+                this.sleepTurns = 0; // For sleep duration
+                this.confusionTurns = 0; // For confusion duration
+            }
+
+            // Calculates Pokémon's actual stats based on species data, level, IVs, and EVs.
+            // Uses a simplified Gen 1 stat formula.
+            calculateStats() {
+                const data = POKEMON_DATA[this.speciesId];
+                const ivs = this.ivs;
+                const evs = {hp: Math.floor(this.evs.hp / 4), atk: Math.floor(this.evs.atk / 4), def: Math.floor(this.evs.def / 4), sp: Math.floor(this.evs.sp / 4), spd: Math.floor(this.evs.spd / 4)};
+
+                // HP: ((BaseHP + IV_HP) * 2 + EV_HP/4) * Level / 100 + Level + 10
+                this.maxHp = Math.floor((2 * data.base_stats.hp + ivs.hp + evs.hp) * this.level / 100 + this.level + 10);
+                // Other Stats: ((BaseStat + IV) * 2 + EV/4) * Level / 100 + 5
+                this.attack = Math.floor((2 * data.base_stats.atk + ivs.atk + evs.atk) * this.level / 100 + 5);
+                this.defense = Math.floor((2 * data.base_stats.def + ivs.def + evs.def) * this.level / 100 + 5);
+                this.special = Math.floor((2 * data.base_stats.sp + ivs.sp + evs.sp) * this.level / 100 + 5);
+                this.speed = Math.floor((2 * data.base_stats.spd + ivs.spd + evs.spd) * this.level / 100 + 5);
+            }
+
+            // Determines the Pokémon's current learnset based on its level.
+            generateLearnset(currentLevel) {
+                const data = POKEMON_DATA[this.speciesId];
+                let learnedMoves = [];
+                data.learnset.forEach(entry => {
+                    if (entry.level <= currentLevel) {
+                        learnedMoves.push(MOVES_DATA[entry.move]);
+                    }
+                });
+                return learnedMoves.slice(-4); // Only keep the last 4 moves in Gen 1
+            }
+
+            // Applies changes to a Pokémon's stat stage (e.g., from Growl, Leer).
+            applyStatModifier(stat, change) {
+                this.statModifiers[stat] = clamp(this.statModifiers[stat] + change, -6, 6);
+            }
+
+            // Returns the effective value of a stat, considering stages and status effects.
+            getStat(statName) {
+                let baseStatValue;
+                switch (statName) {
+                    case 'attack': baseStatValue = this.attack; break;
+                    case 'defense': baseStatValue = this.defense; break;
+                    case 'special': baseStatValue = this.special; break;
+                    case 'speed': baseStatValue = this.speed; break;
+                    case 'hp': return this.maxHp; // HP is not affected by stat stages or many statuses
+                    default: return 0;
+                }
+
+                // Apply stat stage multipliers (Gen 1 stages)
+                const stageMultipliers = {
+                    0: 1, 1: 1.5, 2: 2, 3: 2.5, 4: 3, 5: 3.5, 6: 4,
+                    '-1': 2/3, '-2': 1/2, '-3': 2/5, '-4': 1/3, '-5': 2/7, '-6': 1/4
+                };
+                let finalStat = Math.floor(baseStatValue * (stageMultipliers[this.statModifiers[statName] || 0] || 1));
+
+                // Apply Gen 1 status effects on stats
+                if (statName === 'attack' && this.status === STATUS_EFFECTS.BURN) {
+                    finalStat = Math.floor(finalStat / 2); // Burn halves attack in Gen 1
+                }
+                if (statName === 'speed' && this.status === STATUS_EFFECTS.PARALYZE) {
+                    finalStat = Math.floor(finalStat / 4); // Paralysis quarters speed in Gen 1
+                }
+
+                return finalStat;
+            }
+
+            takeDamage(amount) {
+                this.currentHp = clamp(this.currentHp - amount, 0, this.maxHp);
+            }
+
+            heal(amount) {
+                this.currentHp = clamp(this.currentHp + amount, 0, this.maxHp);
+            }
+
+            faint() {
+                return this.currentHp <= 0;
+            }
+
+            // Checks if the Pokémon is eligible to evolve.
+            canEvolve() {
+                const data = POKEMON_DATA[this.speciesId];
+                if (data.evolution) {
+                    if (data.evolution.level && this.level >= data.evolution.level) {
+                        return true;
+                    }
+                    // For item evolution, player must have the item in their inventory
+                    if (data.evolution.item && GAME_STATE.inventory[data.evolution.item] > 0) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            // Evolves the Pokémon to its next stage.
+            evolve() {
+                const data = POKEMON_DATA[this.speciesId];
+                if (this.canEvolve()) {
+                    const newSpeciesId = data.evolution.to;
+                    const newPokemonData = POKEMON_DATA[newSpeciesId];
+                    if (data.evolution.item && GAME_STATE.inventory[data.evolution.item] > 0) {
+                        GAME_STATE.inventory[data.evolution.item]--; // Consume evolution item
+                    }
+                    this.speciesId = newSpeciesId;
+                    this.name = newPokemonData.name;
+                    this.type = newPokemonData.type;
+                    this.calculateStats(); // Recalculate stats for the new form
+                    this.moves = this.generateLearnset(this.level); // Update moves
+                    // Reset PP for new moves
+                    this.currentPP = {};
+                    this.moves.forEach(move => this.currentPP[move.name] = MOVES_DATA[move.name].pp);
+
+                    GameManager.startDialogue([`${this.name} is evolving!`, `Congratulations! Your ${this.name} evolved into ${newPokemonData.name}!`]);
+                    return true;
+                }
+                return false;
+            }
+        }
+
+        // --- BATTLE ENGINE ---
+        // Handles all logic for turn-based Pokémon battles.
+        class BattleEngine {
+            constructor(playerPokemon, enemyPokemon) {
+                this.playerPokemon = playerPokemon;
+                this.enemyPokemon = enemyPokemon;
+                this.turnOrder = []; // Determined by speed
+                this.isWildBattle = enemyPokemon.isWild;
+                this.battleLog = [];
+                this.battleState = 'CHOOSE_ACTION'; // CHOOSE_ACTION, CHOOSE_MOVE, CHOOSE_PKMN, CHOOSE_ITEM, PLAYER_TURN, ENEMY_TURN, END
+                this.queuedPlayerAction = null; // {type: 'FIGHT', move: moveObject} or {type: 'ITEM', item: itemObject} etc.
+                this.queuedEnemyAction = null;
+            }
+
+            startBattle() {
+                GAME_STATE.inBattle = true;
+                UI.showBattleUI();
+                this.updateBattleUI();
+                this.log(`Wild ${this.enemyPokemon.name} appeared!`);
+                this.determineTurnOrder();
+                this.battleState = 'CHOOSE_ACTION';
+                UI.updateBattleMessage(`What will ${this.playerPokemon.name} do?`);
+            }
+
+            // Ends the current battle, updates UI, and resumes game loop.
+            endBattle(outcome) { // 'win', 'lose', 'run'
+                GAME_STATE.inBattle = false;
+                UI.hideBattleUI();
+                this.log(`Battle ended: ${outcome}`);
+                if (outcome === 'win') {
+                    // Award XP, check for level up, evolution, give money, etc.
+                    this.log(`${this.playerPokemon.name} gained experience!`);
+                    // Simplified XP gain calculation
+                    const xpGain = Math.floor(this.enemyPokemon.level * 10 * (this.isWildBattle ? 1 : 1.5));
+                    this.log(`${this.playerPokemon.name} gained ${xpGain} XP.`);
+                    // (TODO: Implement actual XP system, level up, and evolution checks here)
+                } else if (outcome === 'lose') {
+                    this.log(`Player lost the battle.`);
+                    // (TODO: Implement black-out / return to last Pokemon Center logic)
+                }
+                GAME_STATE.battleManager.endCurrentBattle(); // Clear current battle
+                GameManager.resumeGameLoop();
+            }
+
+            // Adds a message to the battle log and updates the UI message.
+            log(message) {
+                this.battleLog.push(message);
+                UI.updateBattleMessage(message);
+                console.log(message); // For debugging
+            }
+
+            // Updates the battle UI elements (HP bars, names, levels).
+            updateBattleUI() {
+                UI.updatePokemonStats('player', this.playerPokemon);
+                UI.updatePokemonStats('enemy', this.enemyPokemon);
+                UI.showBattleMenu(this.battleState === 'CHOOSE_MOVE' ? 'fight' : 'main'); // Show correct menu
+            }
+
+            // Determines which Pokémon attacks first based on Speed stat.
+            determineTurnOrder() {
+                const playerSpeed = this.playerPokemon.getStat('speed');
+                const enemySpeed = this.enemyPokemon.getStat('speed');
+                if (playerSpeed >= enemySpeed) {
+                    this.turnOrder = ['player', 'enemy'];
+                } else {
+                    this.turnOrder = ['enemy', 'player'];
+                }
+            }
+
+            // Advances the battle by one turn, executing actions and applying status effects.
+            async advanceTurn() {
+                // Pre-turn faint check
+                if (this.playerPokemon.faint()) {
+                    this.endBattle('lose');
+                    return;
+                }
+                if (this.enemyPokemon.faint()) {
+                    this.endBattle('win');
+                    return;
+                }
+
+                if (this.battleState === 'CHOOSE_ACTION') {
+                    // Wait for player input if in choice state
+                    return;
+                }
+
+                // If player has chosen an action, determine enemy action
+                if (!this.queuedEnemyAction) {
+                    this.chooseEnemyAction();
+                }
+
+                const firstAttacker = this.turnOrder[0];
+                const secondAttacker = this.turnOrder[1];
+
+                let action1, action2;
+                let pokemon1, pokemon2;
+
+                if (firstAttacker === 'player') {
+                    action1 = this.queuedPlayerAction;
+                    action2 = this.queuedEnemyAction;
+                    pokemon1 = this.playerPokemon;
+                    pokemon2 = this.enemyPokemon;
+                } else {
+                    action1 = this.queuedEnemyAction;
+                    action2 = this.queuedPlayerAction;
+                    pokemon1 = this.enemyPokemon;
+                    pokemon2 = this.playerPokemon;
+                }
+
+                // Execute first action
+                if (action1) {
+                    await this.executeAction(pokemon1, pokemon2, action1);
+                    if (this.playerPokemon.faint() || this.enemyPokemon.faint()) {
+                        this.endBattle(this.playerPokemon.faint() ? 'lose' : 'win');
+                        return;
+                    }
+                }
+
+                // Execute second action (if not already fainted and not a "run" action)
+                if (action2 && !pokemon2.faint() && action2.type !== 'RUN' && action1.type !== 'RUN') {
+                    await this.executeAction(pokemon2, pokemon1, action2);
+                    if (this.playerPokemon.faint() || this.enemyPokemon.faint()) {
+                        this.endBattle(this.playerPokemon.faint() ? 'lose' : 'win');
+                        return;
+                    }
+                }
+
+                // Apply end-of-turn status effects damage (e.g., Poison, Burn)
+                await this.applyEndOfTurnStatus(this.playerPokemon);
+                await this.applyEndOfTurnStatus(this.enemyPokemon);
+
+                if (this.playerPokemon.faint() || this.enemyPokemon.faint()) {
+                    this.endBattle(this.playerPokemon.faint() ? 'lose' : 'win');
+                    return;
+                }
+
+                // Reset for next turn
+                this.queuedPlayerAction = null;
+                this.queuedEnemyAction = null;
+                this.battleState = 'CHOOSE_ACTION';
+                this.updateBattleUI(); // Refresh UI for next turn
+                UI.updateBattleMessage(`What will ${this.playerPokemon.name} do?`);
+            }
+
+            // Executes a single action (move, item, run) for a Pokémon.
+            async executeAction(attacker, defender, action) {
+                if (attacker.faint()) return; // Attacker might have fainted from previous turn's status
+
+                // Check for paralysis, sleep, freeze before acting
+                if (attacker.status === STATUS_EFFECTS.PARALYZE && Math.random() < 0.25) { // 25% chance to be fully paralyzed
+                    this.log(`${attacker.name} is fully paralyzed! It can't move!`);
+                    await GameManager.wait(1000);
+                    return;
+                }
+                if (attacker.status === STATUS_EFFECTS.SLEEP) {
+                    attacker.sleepTurns = (attacker.sleepTurns || 0) + 1;
+                    if (attacker.sleepTurns >= (attacker.sleepDuration || Math.floor(Math.random() * 4) + 1)) { // Simplified sleep duration (1-4 turns)
+                        attacker.status = STATUS_EFFECTS.NONE;
+                        attacker.sleepTurns = 0;
+                        this.log(`${attacker.name} woke up!`);
+                    } else {
+                        this.log(`${attacker.name} is fast asleep!`);
+                    }
+                    await GameManager.wait(1000);
+                    return;
+                }
+                if (attacker.status === STATUS_EFFECTS.FREEZE) {
+                    // Gen 1 freeze is permanent until a fire move hits or small chance to thaw (very rare)
+                    if (Math.random() < 0.1) { // 10% chance to thaw
+                        attacker.status = STATUS_EFFECTS.NONE;
+                        this.log(`${attacker.name} thawed out!`);
+                    } else {
+                        this.log(`${attacker.name} is frozen solid!`);
+                    }
+                    await GameManager.wait(1000);
+                    return;
+                }
+                if (attacker.status === STATUS_EFFECTS.CONFUSED) {
+                    this.log(`${attacker.name} is confused!`);
+                    if (Math.random() < 0.5) { // 50% chance to hit self
+                        this.log(`${attacker.name} hurt itself in its confusion!`);
+                        // Simplified confusion damage: fixed base power 40 physical hit on self
+                        const confusionDamage = Math.max(1, Math.floor(Math.floor(2 * attacker.level / 5 + 2) * 40 * attacker.getStat('attack') / attacker.getStat('defense')) / 50 + 2);
+                        attacker.takeDamage(confusionDamage);
+                        await GameManager.wait(1000);
+                        this.updateBattleUI();
+                        if (attacker.faint()) {
+                            this.log(`${attacker.name} fainted!`);
+                            return;
+                        }
+                        return; // Confusion hit self, turn ends for attacking
+                    }
+                }
+                
+                // --- EXECUTE ACTION LOGIC ---
+                if (action.type === 'FIGHT') {
+                    const move = action.move;
+                    this.log(`${attacker.name} used ${move.name}!`);
+                    attacker.currentPP[move.name]--;
+
+                    // Accuracy check
+                    if (Math.random() * 100 > move.accuracy) {
+                        this.log('It missed!');
+                        await GameManager.wait(1000);
+                        return;
+                    }
+
+                    // Damage calculation (Gen 1 formula)
+                    let damage = 0;
+                    if (move.category === 'PHYSICAL' || move.category === 'SPECIAL') {
+                        const attackStat = attacker.getStat(move.category === 'PHYSICAL' ? 'attack' : 'special');
+                        const defenseStat = defender.getStat(move.category === 'PHYSICAL' ? 'defense' : 'special');
+                        
+                        let modifier = 1;
+                        // STAB (Same-Type Attack Bonus)
+                        if (attacker.type.includes(move.type)) {
+                            modifier *= 1.5;
+                        }
+                        // Type Effectiveness
+                        attacker.type.forEach(at => {
+                            defender.type.forEach(dt => {
+                                const typeIndex = TYPE_NAMES.indexOf(dt);
+                                if (TYPE_CHART[move.type] && typeIndex !== -1) {
+                                    modifier *= TYPE_CHART[move.type][typeIndex];
+                                }
+                            });
+                        });
+                        
+                        // Critical Hit (simplified: Gen 1 critical hit rate calculation is complex)
+                        // Roughly 1/16 base chance (6.25%). High crit moves modify this.
+                        const baseCritChance = attacker.getStat('speed') / 512; // Gen 1 crit formula for normal moves
+                        const critChance = (move.effect === 'HIGH_CRIT') ? baseCritChance * 4 : baseCritChance; // High crit moves 4x chance
+                        let isCrit = Math.random() < critChance;
+
+                        if (isCrit) {
+                            modifier *= 2; // Crit does double damage in Gen 1
+                            this.log('A critical hit!');
+                        }
+
+                        // Random variance (85% to 100%)
+                        modifier *= (Math.random() * (1 - 0.85) + 0.85);
+
+                        damage = Math.floor(Math.floor(Math.floor(2 * attacker.level / 5 + 2) * move.power * attackStat / defenseStat) / 50 + 2) * modifier;
+                        damage = Math.max(1, damage); // Minimum 1 damage
+
+                        defender.takeDamage(damage);
+                        this.log(`${defender.name} took ${damage} damage!`);
+                        await GameManager.wait(1000);
+                        this.updateBattleUI();
+
+                        // Check for faint after damage
+                        if (defender.faint()) {
+                            this.log(`${defender.name} fainted!`);
+                            await GameManager.wait(1000);
+                            return;
+                        }
+                    } else if (move.category === 'STATUS') {
+                        // Implement status move effects
+                        switch (move.effect) {
+                            case 'LOWER_ATTACK_1':
+                                this.log(`${defender.name}'s Attack fell!`);
+                                defender.applyStatModifier('atk', -1);
+                                break;
+                            case 'LOWER_DEFENSE_1':
+                                this.log(`${defender.name}'s Defense fell!`);
+                                defender.applyStatModifier('def', -1);
+                                break;
+                            case 'LEECH_SEED':
+                                this.log(`${defender.name} was seeded!`);
+                                defender.status = STATUS_EFFECTS.LEECH_SEEDED;
+                                break;
+                            case 'BURN_CHANCE_10': // 10% chance to burn
+                                if (defender.status === STATUS_EFFECTS.NONE && Math.random() < 0.1) {
+                                    this.log(`${defender.name} was burned!`);
+                                    defender.status = STATUS_EFFECTS.BURN;
+                                }
+                                break;
+                            case 'PARALYZE_CHANCE_10': // 10% chance to paralyze
+                                if (defender.status === STATUS_EFFECTS.NONE && Math.random() < 0.1) {
+                                    this.log(`${defender.name} was paralyzed!`);
+                                    defender.status = STATUS_EFFECTS.PARALYZE;
+                                }
+                                break;
+                            case 'CONFUSE_CHANCE_10': // 10% chance to confuse
+                                if (defender.status !== STATUS_EFFECTS.CONFUSED && Math.random() < 0.1) {
+                                    this.log(`${defender.name} became confused!`);
+                                    defender.status = STATUS_EFFECTS.CONFUSED;
+                                    defender.confusionTurns = 0; // Reset confusion counter
+                                }
+                                break;
+                            case 'FIXED_DAMAGE_40': // Dragon Rage
+                                damage = 40;
+                                defender.takeDamage(damage);
+                                this.log(`${defender.name} took ${damage} fixed damage!`);
+                                await GameManager.wait(1000);
+                                this.updateBattleUI();
+                                if (defender.faint()) {
+                                    this.log(`${defender.name} fainted!`);
+                                    await GameManager.wait(1000);
+                                    return;
+                                }
+                                break;
+                            case 'VARIABLE_DAMAGE_LVL': // Psywave
+                                damage = Math.max(1, Math.floor(Math.random() * (attacker.level * 1.5 - attacker.level * 0.5 + 1)) + attacker.level * 0.5);
+                                defender.takeDamage(damage);
+                                this.log(`${defender.name} took ${damage} damage from Psywave!`);
+                                await GameManager.wait(1000);
+                                this.updateBattleUI();
+                                if (defender.faint()) {
+                                    this.log(`${defender.name} fainted!`);
+                                    await GameManager.wait(1000);
+                                    return;
+                                }
+                                break;
+                            case 'LOWER_SPECIAL_CHANCE_10': // Psychic's Gen 1 effect
+                                if (Math.random() < 0.1) {
+                                    this.log(`${defender.name}'s Special fell!`);
+                                    defender.applyStatModifier('sp', -1);
+                                }
+                                break;
+                            case 'LOWER_SPEED_CHANCE_10': // Bubble's Gen 1 effect
+                                if (Math.random() < 0.1) {
+                                    this.log(`${defender.name}'s Speed fell!`);
+                                    defender.applyStatModifier('spd', -1);
+                                }
+                                break;
+                            case 'PRIORITY_1': // Quick Attack, etc. Not a status effect, but affects turn order.
+                                // Handled by turn order determination, no direct effect here.
+                                break;
+                        }
+                        await GameManager.wait(1000);
+                    }
+                } else if (action.type === 'ITEM') {
+                    const item = ITEMS_DATA[action.itemId];
+                    if (!item) { this.log("Invalid item."); await GameManager.wait(500); return; }
+
+                    this.log(`Player used ${item.name}!`);
+                    if (item.type === 'healing' && item.effect.hp_restore) {
+                        this.playerPokemon.heal(item.effect.hp_restore);
+                        this.log(`${this.playerPokemon.name} recovered ${item.effect.hp_restore} HP!`);
+                        GAME_STATE.inventory[action.itemId]--;
+                    } else if (item.type === 'capture' && this.isWildBattle) {
+                        // (TODO: Implement capture mechanics: formula based on HP, status, ball type)
+                        this.log(`Attempted to catch ${defender.name}!`);
+                        // For now, a simple random chance
+                        if (Math.random() < 0.5) {
+                            this.log(`Gotcha! ${defender.name} was caught!`);
+                            GAME_STATE.playerParty.push(defender); // Add to player's party
+                            GAME_STATE.inventory[action.itemId]--;
+                            this.endBattle('win'); // End battle after capture
+                            return;
+                        } else {
+                            this.log(`${defender.name} broke free!`);
+                            GAME_STATE.inventory[action.itemId]--;
+                        }
+                    } else {
+                        this.log(`But nothing happened!`);
+                    }
+                    await GameManager.wait(1000);
+                    this.updateBattleUI();
+                } else if (action.type === 'RUN') {
+                    if (this.isWildBattle) {
+                        // Gen 1 run formula (simplified)
+                        const playerSpeed = attacker.getStat('speed');
+                        const enemySpeed = defender.getStat('speed');
+                        if (playerSpeed > enemySpeed || Math.random() < 0.5) { // 50% base chance to escape
+                            this.log('Got away safely!');
+                            await GameManager.wait(1000);
+                            this.endBattle('run');
+                            return;
+                        } else {
+                            this.log('Couldn\'t get away!');
+                            await GameManager.wait(1000);
+                        }
+                    } else {
+                        this.log('Cannot run from a trainer battle!');
+                        await GameManager.wait(1000);
+                    }
+                }
+
+                // After move execution, decrement confusion counter/status
+                if (attacker.status === STATUS_EFFECTS.CONFUSED) {
+                    attacker.confusionTurns = (attacker.confusionTurns || 0) + 1;
+                    if (attacker.confusionTurns >= (attacker.confusionDuration || Math.floor(Math.random() * 4) + 1)) { // Confusion lasts 1-4 turns
+                         attacker.status = STATUS_EFFECTS.NONE;
+                         attacker.confusionTurns = 0;
+                         this.log(`${attacker.name} snapped out of confusion!`);
+                    }
+                }
+            }
+
+            // Applies damage from persistent status effects at the end of a turn.
+            async applyEndOfTurnStatus(pokemon) {
+                if (pokemon.faint()) return;
+
+                switch (pokemon.status) {
+                    case STATUS_EFFECTS.POISON:
+                        const poisonDamage = Math.max(1, Math.floor(pokemon.maxHp / 8));
+                        pokemon.takeDamage(poisonDamage);
+                        this.log(`${pokemon.name} is hurt by poison!`);
+                        await GameManager.wait(1000);
+                        this.updateBattleUI();
+                        if (pokemon.faint()) {
+                            this.log(`${pokemon.name} fainted!`);
+                            return;
+                        }
+                        break;
+                    case STATUS_EFFECTS.BURN:
+                        const burnDamage = Math.max(1, Math.floor(pokemon.maxHp / 8));
+                        pokemon.takeDamage(burnDamage);
+                        this.log(`${pokemon.name} is hurt by its burn!`);
+                        await GameManager.wait(1000);
+                        this.updateBattleUI();
+                        if (pokemon.faint()) {
+                            this.log(`${pokemon.name} fainted!`);
+                            return;
+                        }
+                        break;
+                    case STATUS_EFFECTS.LEECH_SEEDED:
+                        const leechAmount = Math.max(1, Math.floor(pokemon.maxHp / 8));
+                        pokemon.takeDamage(leechAmount);
+                        // Heal the other Pokémon in battle (assuming player's active pokemon for simplicity)
+                        if (pokemon === this.enemyPokemon && !this.playerPokemon.faint()) {
+                            this.playerPokemon.heal(leechAmount);
+                            this.log(`${pokemon.name}'s health was sapped!`);
+                            this.log(`${this.playerPokemon.name} restored health!`);
+                        } else if (pokemon === this.playerPokemon && !this.enemyPokemon.faint()) {
+                            this.enemyPokemon.heal(leechAmount);
+                            this.log(`${pokemon.name}'s health was sapped!`);
+                            this.log(`${this.enemyPokemon.name} restored health!`);
+                        }
+                        await GameManager.wait(1000);
+                        this.updateBattleUI();
+                        if (pokemon.faint()) {
+                            this.log(`${pokemon.name} fainted!`);
+                            return;
+                        }
+                        break;
+                }
+            }
+
+            // Simple AI for enemy Pokémon: picks a random damaging move.
+            chooseEnemyAction() {
+                const damagingMoves = this.enemyPokemon.moves.filter(move => move.category === 'PHYSICAL' || move.category === 'SPECIAL');
+                if (damagingMoves.length > 0) {
+                    const chosenMove = damagingMoves[Math.floor(Math.random() * damagingMoves.length)];
+                    this.queuedEnemyAction = {type: 'FIGHT', move: chosenMove};
+                } else {
+                    // Fallback if no damaging moves (e.g., if only status moves exist)
+                    this.queuedEnemyAction = {type: 'FIGHT', move: this.enemyPokemon.moves[0]};
+                }
+            }
+        }
+
+        // --- MAP ENGINE ---
+        // Handles rendering the game map and checking tile properties.
+        class MapEngine {
+            constructor(canvas, ctx) {
+                this.canvas = canvas;
+                this.ctx = ctx;
+                this.currentMapData = null;
+                this.tileSprites = {}; // Cache for Image objects created from SVG data URIs
+                this.initTileSprites();
+            }
+
+            // Loads all tile and NPC sprites from TILE_ASSETS into Image objects.
+            initTileSprites() {
+                for (const assetId in TILE_ASSETS) {
+                    const img = new Image();
+                    img.src = TILE_ASSETS[assetId];
+                    this.tileSprites[assetId] = img;
+                }
+            }
+
+            // Loads a new map into the game.
+            loadMap(mapId) {
+                this.currentMapData = MAPS[mapId];
+                if (!this.currentMapData) {
+                    console.error("Map not found:", mapId);
+                    return;
+                }
+                GAME_STATE.currentMap = mapId;
+                this.renderMap();
+            }
+
+            // Renders the current map tiles and NPCs to the canvas.
+            renderMap() {
+                if (!this.currentMapData) return;
+
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+                for (let y = 0; y < this.currentMapData.map_data.length; y++) {
+                    for (let x = 0; x < this.currentMapData.map_data[y].length; x++) {
+                        const tileId = this.currentMapData.map_data[y][x];
+                        const tileSprite = this.tileSprites[tileId];
+                        if (tileSprite) {
+                            this.ctx.drawImage(tileSprite, x * GAME_CONFIG.TILE_SIZE, y * GAME_CONFIG.TILE_SIZE, GAME_CONFIG.TILE_SIZE, GAME_CONFIG.TILE_SIZE);
+                        }
+                    }
+                }
+                this.renderNPCs();
+            }
+
+            // Renders NPCs on the current map.
+            renderNPCs() {
+                if (!this.currentMapData || !this.currentMapData.npcs) return;
+                this.currentMapData.npcs.forEach(npc => {
+                    // Do not render trainers that have been defeated
+                    if (npc.type === 'TRAINER_MALE' && GAME_STATE.flags[`defeated_trainer_${npc.x}_${npc.y}_${GAME_STATE.currentMap}`]) return;
+
+                    const npcSprite = this.tileSprites[npc.sprite];
+                    if (npcSprite) {
+                        this.ctx.drawImage(npcSprite, npc.x * GAME_CONFIG.TILE_SIZE, npc.y * GAME_CONFIG.TILE_SIZE, GAME_CONFIG.TILE_SIZE, GAME_CONFIG.TILE_SIZE);
+                    }
+                });
+            }
+
+            // Checks if a given tile coordinate is walkable.
+            isWalkable(x, y) {
+                if (!this.currentMapData) return false;
+                if (x < 0 || x >= this.currentMapData.map_data[0].length || y < 0 || y >= this.currentMapData.map_data.length) {
+                    return false; // Out of bounds
+                }
+                const tileId = this.currentMapData.map_data[y][x];
+                // Define non-walkable tiles (e.g., trees, water, house walls)
+                return ![1, 3, 4].includes(tileId);
+            }
+
+            // Gets the tile ID at a specific coordinate.
+            getTileAt(x, y) {
+                if (!this.currentMapData) return null;
+                if (x < 0 || x >= this.currentMapData.map_data[0].length || y < 0 || y >= this.currentMapData.map_data.length) {
+                    return null;
+                }
+                return this.currentMapData.map_data[y][x];
+            }
+
+            // Gets any event associated with a specific coordinate.
+            getEventAt(x, y) {
+                if (!this.currentMapData || !this.currentMapData.events) return null;
+                return this.currentMapData.events.find(event => event.x === x && event.y === y);
+            }
+
+            // Gets any NPC located at a specific coordinate.
+            getNPCAt(x, y) {
+                if (!this.currentMapData || !this.currentMapData.npcs) return null;
+                // Only return NPC if they haven't been "defeated" if they are a trainer
+                const npc = this.currentMapData.npcs.find(npc => npc.x === x && npc.y === y);
+                if (npc && npc.type === 'TRAINER_MALE' && GAME_STATE.flags[`defeated_trainer_${npc.x}_${npc.y}_${GAME_STATE.currentMap}`]) {
+                    return null; // Trainer already defeated
+                }
+                return npc;
+            }
+        }
+
+        // --- PLAYER CLASS ---
+        // Manages player movement, drawing, and interaction.
+        class Player {
+            constructor(canvas, ctx, mapEngine) {
+                this.canvas = canvas;
+                this.ctx = ctx;
+                this.mapEngine = mapEngine;
+
+                this.x = GAME_STATE.playerX; // In tiles
+                this.y = GAME_STATE.playerY; // In tiles
+                this.pixelX = this.x * GAME_CONFIG.TILE_SIZE;
+                this.pixelY = this.y * GAME_CONFIG.TILE_SIZE;
+                this.direction = GAME_STATE.playerDirection;
+                this.isMoving = GAME_STATE.isMoving;
+                this.movementProgress = GAME_STATE.movementProgress; // Pixels into current tile
+            }
+
+            // Draws the player sprite on the canvas.
+            draw() {
+                const playerSprite = this.mapEngine.tileSprites['PLAYER'];
+                if (playerSprite) {
+                    this.ctx.drawImage(playerSprite, this.pixelX, this.pixelY, GAME_CONFIG.TILE_SIZE, GAME_CONFIG.TILE_SIZE);
+                }
+            }
+
+            // Updates player's position if moving, and checks for events/encounters after movement.
+            update(deltaTime) {
+                if (GAME_STATE.dialogueActive || GAME_STATE.inBattle) return;
+
+                if (this.isMoving) {
+                    this.movementProgress += GAME_CONFIG.PLAYER_SPEED;
+
+                    if (this.movementProgress >= GAME_CONFIG.TILE_SIZE) {
+                        this.isMoving = false;
+                        this.movementProgress = 0;
+                        this.x = Math.round(this.pixelX / GAME_CONFIG.TILE_SIZE);
+                        this.y = Math.round(this.pixelY / GAME_CONFIG.TILE_SIZE);
+                        GAME_STATE.playerX = this.x;
+                        GAME_STATE.playerY = this.y;
+
+                        this.checkPostMovementEvents();
+                    } else {
+                        switch (this.direction) {
+                            case 'up': this.pixelY -= GAME_CONFIG.PLAYER_SPEED; break;
+                            case 'down': this.pixelY += GAME_CONFIG.PLAYER_SPEED; break;
+                            case 'left': this.pixelX -= GAME_CONFIG.PLAYER_SPEED; break;
+                            case 'right': this.pixelX += GAME_CONFIG.PLAYER_SPEED; break;
+                        }
+                    }
+                }
+            }
+
+            // Checks for wild encounters, map transitions, and object interactions after moving to a new tile.
+            async checkPostMovementEvents() {
+                const tileType = this.mapEngine.getTileAt(this.x, this.y);
+
+                // Wild encounter check
+                if (tileType === 8 && !GAME_STATE.inBattle) { // Tall grass
+                    const mapEncounters = this.mapEngine.currentMapData.wild_encounters;
+                    if (mapEncounters && Math.random() < GAME_CONFIG.WILD_ENCOUNTER_CHANCE) {
+                        const availableEncounters = mapEncounters.filter(e => e.chance > Math.random());
+                        if (availableEncounters.length > 0) {
+                            const encounter = availableEncounters[Math.floor(Math.random() * availableEncounters.length)];
+                            const level = Math.floor(Math.random() * (encounter.max_level - encounter.min_level + 1)) + encounter.min_level;
+                            const wildPokemon = new Pokemon(encounter.pokemon, level, true);
+                            
+                            // Ensure player has an active Pokémon for battle
+                            if (GAME_STATE.playerParty.length > 0) {
+                                GameManager.startBattle(GAME_STATE.playerParty[0], wildPokemon);
+                                return; // Stop further checks if battle starts
+                            } else {
+                                GameManager.startDialogue(["You don't have any Pokémon to battle!"]);
+                            }
+                        }
+                    }
+                }
+
+                // Map events (doors, transitions, objects)
+                const event = this.mapEngine.getEventAt(this.x, this.y);
+                if (event) {
+                    if (event.type === 'door' || event.type === 'transition') {
+                        GameManager.loadMap(event.target_map, event.target_x, event.target_y);
+                    } else if (event.type === 'object') {
+                        await GameManager.startDialogue(event.dialogue);
+                        if (event.flag_set) {
+                            GAME_STATE.flags[event.flag_set] = true;
+                        }
+                    }
+                }
+
+                // Evolution check after movement (e.g., if a level-up evolution occurs)
+                // This would typically be triggered after battle XP gain or item use.
+                // For simplicity, checking here if a Pokémon can evolve based on level.
+                for (const pokemon of GAME_STATE.playerParty) {
+                    if (pokemon.canEvolve() && pokemon.evolution && pokemon.evolution.level) {
+                        await pokemon.evolve();
+                        break; // Only one evolution at a time
+                    }
+                }
+            }
+
+            // Initiates player movement in a given direction.
+            move(dir) {
+                if (this.isMoving || GAME_STATE.dialogueActive || GAME_STATE.inBattle) return;
+
+                this.direction = dir;
+                let nextX = this.x;
+                let nextY = this.y;
+
+                switch (dir) {
+                    case 'up': nextY--; break;
+                    case 'down': nextY++; break;
+                    case 'left': nextX--; break;
+                    case 'right': nextX++; break;
+                }
+
+                if (this.mapEngine.isWalkable(nextX, nextY)) {
+                    this.isMoving = true;
+                    this.pixelX = this.x * GAME_CONFIG.TILE_SIZE;
+                    this.pixelY = this.y * GAME_CONFIG.TILE_SIZE;
+                    GAME_STATE.playerDirection = this.direction;
+                }
+            }
+
+            // Handles interaction with NPCs or objects in front of the player.
+            async interact() {
+                if (this.isMoving || GAME_STATE.dialogueActive || GAME_STATE.inBattle) return;
+
+                let interactX = this.x;
+                let interactY = this.y;
+
+                switch (this.direction) {
+                    case 'up': interactY--; break;
+                    case 'down': interactY++; break;
+                    case 'left': interactX--; break;
+                    case 'right': interactX++; break;
+                }
+
+                // Check for NPC interaction
+                const npc = this.mapEngine.getNPCAt(interactX, interactY);
+                if (npc) {
+                    if (npc.type === 'TRAINER_MALE' && !GAME_STATE.flags[`defeated_trainer_${npc.x}_${npc.y}_${GAME_STATE.currentMap}`]) {
+                        await GameManager.startDialogue(npc.dialogue); // Trainer intro dialogue
+                        GAME_STATE.flags[`defeated_trainer_${npc.x}_${npc.y}_${GAME_STATE.currentMap}`] = true; // Mark as fought
+                        const trainerPokemon = npc.team.map(p => new Pokemon(p.species, p.level, false));
+                        // Start battle with player's first active Pokémon against trainer's first Pokémon
+                        if (GAME_STATE.playerParty.length > 0) {
+                            GameManager.startBattle(GAME_STATE.playerParty[0], trainerPokemon[0], false);
+                        } else {
+                            GameManager.startDialogue(["You need a Pokémon to battle this trainer!"]);
+                        }
+                    } else {
+                        await GameManager.startDialogue(npc.dialogue);
+                    }
+                    return;
+                }
+
+                // Check for object interaction (signs, etc.)
+                const event = this.mapEngine.getEventAt(interactX, interactY);
+                if (event && event.type === 'object') {
+                    await GameManager.startDialogue(event.dialogue);
+                    if (event.flag_set) {
+                        GAME_STATE.flags[event.flag_set] = true;
+                    }
+                }
+            }
+        }
+
+        // --- UI MANAGER ---
+        // Manages displaying and updating various user interface elements.
+        const UI = {
+            dialogueBox: document.getElementById('dialogue-box'),
+            dialogueText: document.getElementById('dialogue-text'),
+            dialogueNextButton: document.getElementById('dialogue-next'),
+            battleUI: document.getElementById('battle-ui'),
+            battleMessage: document.getElementById('battle-message'),
+            battleMenu: document.getElementById('battle-menu'),
+            battleFightMenu: document.getElementById('battle-fight-menu'),
+
+            // Displays a series of dialogue lines.
+            showDialogue(textLines, onComplete) {
+                GAME_STATE.dialogueActive = true;
+                this.dialogueBox.style.display = 'block';
+                this.dialogueText.innerHTML = '';
+                this.dialogueNextButton.style.display = 'none';
+
+                let currentLineIndex = 0;
+                let charIndex = 0;
+                let typingInterval;
+
+                const typeText = () => {
+                    if (charIndex < textLines[currentLineIndex].length) {
+                        this.dialogueText.textContent += textLines[currentLineIndex][charIndex];
+                        charIndex++;
+                    } else {
+                        clearInterval(typingInterval);
+                        this.dialogueNextButton.style.display = 'block';
+                    }
+                };
+
+                const displayNextLine = () => {
+                    charIndex = 0;
+                    this.dialogueText.textContent = '';
+                    this.dialogueNextButton.style.display = 'none';
+                    if (currentLineIndex < textLines.length) {
+                        typingInterval = setInterval(typeText, GAME_CONFIG.TEXT_SPEED);
+                    } else {
+                        this.hideDialogue();
+                        if (onComplete) onComplete();
+                    }
+                };
+
+                // Event listener for advancing dialogue
+                this.dialogueNextButton.onclick = () => {
+                    if (charIndex < textLines[currentLineIndex].length) {
+                        // If text is still typing, instantly show full line
+                        clearInterval(typingInterval);
+                        this.dialogueText.textContent = textLines[currentLineIndex];
+                        this.dialogueNextButton.style.display = 'block';
+                    } else {
+                        currentLineIndex++;
+                        displayNextLine();
+                    }
+                };
+
+                displayNextLine(); // Start displaying the first line
+            },
+
+            // Hides the dialogue box.
+            hideDialogue() {
+                GAME_STATE.dialogueActive = false;
+                this.dialogueBox.style.display = 'none';
+                this.dialogueNextButton.onclick = null; // Clear listener
+            },
+
+            // Shows the battle UI.
+            showBattleUI() {
+                this.battleUI.style.display = 'flex';
+                // Attach event listeners for main battle menu options
+                document.querySelectorAll('#battle-menu .battle-option').forEach(button => {
+                    button.onclick = (e) => GameManager.handleBattleInput(e.target.dataset.action);
+                });
+            },
+
+            // Hides the battle UI.
+            hideBattleUI() {
+                this.battleUI.style.display = 'none';
+                document.querySelectorAll('#battle-menu .battle-option').forEach(button => {
+                    button.onclick = null;
+                });
+                this.battleFightMenu.innerHTML = ''; // Clear moves
+                this.battleFightMenu.style.display = 'none';
+                this.battleMenu.style.display = 'flex';
+            },
+
+            // Updates the main battle message.
+            updateBattleMessage(message) {
+                this.battleMessage.textContent = message;
+            },
+
+            // Updates the HP bars, names, and levels of Pokémon in battle.
+            updatePokemonStats(target, pokemon) {
+                const nameSpan = document.getElementById(`${target}-pokemon-name`);
+                const levelSpan = document.getElementById(`${target}-pokemon-level`);
+                const hpBar = document.getElementById(`${target}-pokemon-hp-bar`);
+                const currentHpSpan = document.getElementById(`${target}-pokemon-current-hp`);
+                const maxHpSpan = document.getElementById(`${target}-pokemon-max-hp`);
+
+                if (nameSpan) nameSpan.textContent = pokemon.name;
+                if (levelSpan) levelSpan.textContent = pokemon.level;
+                if (hpBar) hpBar.style.width = `${(pokemon.currentHp / pokemon.maxHp) * 100}%`;
+                if (currentHpSpan) currentHpSpan.textContent = pokemon.currentHp;
+                if (maxHpSpan) maxHpSpan.textContent = pokemon.maxHp;
+            },
+
+            // Shows either the main battle menu or the fight (moves) menu.
+            showBattleMenu(menuType) {
+                this.battleMenu.style.display = 'none';
+                this.battleFightMenu.style.display = 'none';
+
+                if (menuType === 'main') {
+                    this.battleMenu.style.display = 'flex';
+                } else if (menuType === 'fight') {
+                    this.battleFightMenu.style.display = 'flex';
+                    this.battleFightMenu.innerHTML = ''; // Clear previous moves
+
+                    const activePokemon = GAME_STATE.playerParty[0];
+                    if (!activePokemon) return;
+
+                    activePokemon.moves.forEach(move => {
+                        const moveButton = document.createElement('div');
+                        moveButton.classList.add('battle-option');
+                        moveButton.textContent = `${move.name} (PP: ${activePokemon.currentPP[move.name]}/${move.pp})`;
+                        moveButton.dataset.action = 'FIGHT_MOVE';
+                        moveButton.dataset.moveId = move.name;
+                        moveButton.onclick = (e) => GameManager.handleBattleInput(e.target.dataset.action, e.target.dataset.moveId);
+                        this.battleFightMenu.appendChild(moveButton);
+                    });
+                    const backButton = document.createElement('div');
+                    backButton.classList.add('battle-option');
+                    backButton.textContent = 'BACK';
+                    backButton.dataset.action = 'BACK_TO_MAIN_BATTLE_MENU';
+                    backButton.onclick = (e) => GameManager.handleBattleInput(e.target.dataset.action);
+                    this.battleFightMenu.appendChild(backButton);
+                } else if (menuType === 'items') {
+                     // (TODO: Implement item selection UI)
+                     this.battleFightMenu.style.display = 'flex';
+                     this.battleFightMenu.innerHTML = '';
+                     for (const itemId in GAME_STATE.inventory) {
+                         if (GAME_STATE.inventory[itemId] > 0) {
+                             const itemData = ITEMS_DATA[itemId];
+                             const itemButton = document.createElement('div');
+                             itemButton.classList.add('battle-option');
+                             itemButton.textContent = `${itemData.name} x${GAME_STATE.inventory[itemId]}`;
+                             itemButton.dataset.action = 'USE_ITEM';
+                             itemButton.dataset.itemId = itemId;
+                             itemButton.onclick = (e) => GameManager.handleBattleInput(e.target.dataset.action, null, e.target.dataset.itemId);
+                             this.battleFightMenu.appendChild(itemButton);
+                         }
+                     }
+                     const backButton = document.createElement('div');
+                     backButton.classList.add('battle-option');
+                     backButton.textContent = 'BACK';
+                     backButton.dataset.action = 'BACK_TO_MAIN_BATTLE_MENU';
+                     backButton.onclick = (e) => GameManager.handleBattleInput(e.target.dataset.action);
+                     this.battleFightMenu.appendChild(backButton);
+                }
+            }
+        };
+
+
+        // --- GAME MANAGER (Main Game Loop and State Management) ---
+        // The central object managing game state, loops, input, and high-level events.
+        const GameManager = {
+            canvas: null,
+            ctx: null,
+            player: null,
+            mapEngine: null,
+            lastFrameTime: 0,
+            animationFrameId: null,
+            battleManager: null, // Holds the current BattleEngine instance
+
+            // Initializes the game.
+            init() {
+                this.canvas = document.getElementById('gameCanvas');
+                this.ctx = this.canvas.getContext('2d');
+
+                this.canvas.width = GAME_CONFIG.MAP_WIDTH_TILES * GAME_CONFIG.TILE_SIZE;
+                this.canvas.height = GAME_CONFIG.MAP_HEIGHT_TILES * GAME_CONFIG.TILE_SIZE;
+
+                this.mapEngine = new MapEngine(this.canvas, this.ctx);
+                this.player = new Player(this.canvas, this.ctx, this.mapEngine);
+
+                this.loadGame(); // Attempt to load saved game state
+
+                // If no saved game or starting fresh
+                if (GAME_STATE.playerParty.length === 0 && !GAME_STATE.flags.has_starter) {
+                    this.startNewGame();
+                } else {
+                    this.mapEngine.loadMap(GAME_STATE.currentMap);
+                    this.player.x = GAME_STATE.playerX;
+                    this.player.y = GAME_STATE.playerY;
+                    this.player.pixelX = this.player.x * GAME_CONFIG.TILE_SIZE;
+                    this.player.pixelY = this.player.y * GAME_CONFIG.TILE_SIZE;
+                    this.player.direction = GAME_STATE.playerDirection;
+                }
+
+                this.bindInputEvents();
+                this.startGameLoop();
+            },
+
+            // Starts the main game animation loop.
+            startGameLoop() {
+                if (this.animationFrameId) cancelAnimationFrame(this.animationFrameId);
+                const loop = (currentTime) => {
+                    const deltaTime = currentTime - this.lastFrameTime;
+                    this.lastFrameTime = currentTime;
+
+                    if (!GAME_STATE.dialogueActive && !GAME_STATE.inBattle) {
+                        this.player.update(deltaTime);
+                        this.render();
+                    } else if (GAME_STATE.inBattle) {
+                        this.renderBattle(); // Render battle specific visuals
+                    }
+
+                    this.animationFrameId = requestAnimationFrame(loop);
+                };
+                this.animationFrameId = requestAnimationFrame(loop);
+            },
+
+            // Pauses the game loop (e.g., during dialogue or menus).
+            pauseGameLoop() {
+                if (this.animationFrameId) {
+                    cancelAnimationFrame(this.animationFrameId);
+                    this.animationFrameId = null;
+                }
+            },
+
+            // Resumes the game loop.
+            resumeGameLoop() {
+                if (!this.animationFrameId) {
+                    this.startGameLoop();
+                }
+            },
+
+            // Renders the current game world (map, player, NPCs).
+            render() {
+                this.mapEngine.renderMap();
+                this.player.draw();
+            },
+
+            // Renders battle-specific visuals (background, Pokémon sprites).
+            renderBattle() {
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                this.ctx.fillStyle = '#C0C0C0'; // Battle background color
+                this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+                // Draw Pokémon sprites
+                if (this.battleManager && this.battleManager.playerPokemon) {
+                    const playerPokemonSprite = new Image();
+                    playerPokemonSprite.src = POKEMON_DATA[this.battleManager.playerPokemon.speciesId].sprites.back;
+                    // Position adjusted for visual appearance
+                    this.ctx.drawImage(playerPokemonSprite, 60, this.canvas.height - 100 - 64, 64, 64);
+                }
+                if (this.battleManager && this.battleManager.enemyPokemon) {
+                    const enemyPokemonSprite = new Image();
+                    enemyPokemonSprite.src = POKEMON_DATA[this.battleManager.enemyPokemon.speciesId].sprites.front;
+                    // Position adjusted for visual appearance
+                    this.ctx.drawImage(enemyPokemonSprite, this.canvas.width - 60 - 64, 40, 64, 64);
+                }
+            },
+
+            // Binds keyboard event listeners for player input.
+            bindInputEvents() {
+                document.addEventListener('keydown', (e) => this.handleKeyDown(e));
+            },
+
+            // Handles keyboard input for movement, interaction, and menu.
+            handleKeyDown(e) {
+                if (GAME_STATE.dialogueActive) return;
+
+                // Battle input is handled by UI listeners for battle options, not general keydown
+                if (GAME_STATE.inBattle) {
+                    // For now, no general keydown actions in battle
+                    return;
+                }
+
+                switch (e.key) {
+                    case 'ArrowUp':
+                    case 'w':
+                        this.player.move('up');
+                        break;
+                    case 'ArrowDown':
+                    case 's':
+                        this.player.move('down');
+                        break;
+                    case 'ArrowLeft':
+                    case 'a':
+                        this.player.move('left');
+                        break;
+                    case 'ArrowRight':
+                    case 'd':
+                        this.player.move('right');
+                        break;
+                    case 'z': // Interact / Confirm
+                        this.player.interact();
+                        break;
+                    case 'x': // Open Menu / Cancel
+                        // Placeholder for a full game menu
+                        this.saveGame();
+                        this.startDialogue(["Game saved!", "You can load it next time you play."]);
+                        break;
+                }
+            },
+
+            // Displays a dialogue sequence, pausing the game loop.
+            async startDialogue(textArray, onComplete = null) {
+                this.pauseGameLoop();
+                await new Promise(resolve => {
+                    UI.showDialogue(textArray, () => {
+                        UI.hideDialogue();
+                        if (onComplete) onComplete();
+                        resolve();
+                    });
+                });
+                this.resumeGameLoop();
+            },
+
+            // Initiates a new game, resetting state and starting introductory dialogue.
+            async startNewGame() {
+                // Reset all game state for a new game
+                GAME_STATE.playerParty = [];
+                GAME_STATE.inventory = {'POKE_BALL': 5, 'POTION': 2, 'CEDARS_PARCEL': 1};
+                GAME_STATE.flags = {};
+                GAME_STATE.currentMap = 'STARTER_TOWN';
+                GAME_STATE.playerX = 3;
+                GAME_STATE.playerY = 3;
+                this.player.x = 3;
+                this.player.y = 3;
+                this.player.pixelX = this.player.x * GAME_CONFIG.TILE_SIZE;
+                this.player.pixelY = this.player.y * GAME_CONFIG.TILE_SIZE;
+                this.player.direction = 'down';
+
+                this.mapEngine.loadMap('STARTER_TOWN');
+
+                await this.startDialogue([
+                    "Professor Cedar: Ah, welcome to the Sylon Region!",
+                    "Professor Cedar: What's your name, young trainer?", // (User could input name here in a real game)
+                    "Professor Cedar: Excellent! Now, you mentioned your parent's disappearance...",
+                    "Professor Cedar: Indeed, a note about ancient ruins and a legendary Pokémon.",
+                    "Professor Cedar: I believe becoming the Champion might lead you to answers.",
+                    "Professor Cedar: But first, choose your first Pokémon to start your journey!"
+                ]);
+                await this.chooseStarterPokemon();
+            },
+
+            // Allows the player to choose their first Pokémon.
+            async chooseStarterPokemon() {
+                await this.startDialogue([
+                    "Professor Cedar: Will you take Bulbasaur, Charmander, or Squirtle?",
+                    "Professor Cedar: Press 1 for Bulbasaur, 2 for Charmander, 3 for Squirtle."
+                ]);
+
+                // Use a promise to wait for specific key input
+                const choice = await new Promise(resolve => {
+                    const handler = (e) => {
+                        if (e.key === '1' || e.key === '2' || e.key === '3') {
+                            document.removeEventListener('keydown', handler);
+                            resolve(e.key);
+                        }
+                    };
+                    document.addEventListener('keydown', handler, {once: false}); // Keep listening until valid input
+                });
+
+                let chosenPokemonId = null;
+                if (choice === '1') chosenPokemonId = 'BULBASAUR';
+                else if (choice === '2') chosenPokemonId = 'CHARMANDER';
+                else if (choice === '3') chosenPokemonId = 'SQUIRTLE';
+
+                if (chosenPokemonId) {
+                    GAME_STATE.playerParty.push(new Pokemon(chosenPokemonId, 5));
+                    GAME_STATE.flags.has_starter = true;
+                    await this.startDialogue([
+                        `Professor Cedar: Good choice! Take good care of your new ${chosenPokemonId}!`,
+                        "Professor Cedar: Your journey to become the Sylon Champion begins now!",
+                        "Professor Cedar: The path will be long, and filled with mysteries.",
+                        "Professor Cedar: Be wary of Team Cipher, they seek to exploit ancient powers."
+                    ]);
+                } else {
+                    await this.startDialogue(["Professor Cedar: Please choose one of the options.", "Try again."]);
+                    await this.chooseStarterPokemon(); // Retry if invalid choice
+                }
+            },
+
+            // Starts a Pokémon battle.
+            startBattle(playerActivePokemon, enemyPokemon, isWild = true) {
+                if (!playerActivePokemon || !enemyPokemon) {
+                    console.error("Cannot start battle: Missing Pokémon.");
+                    return;
+                }
+                this.pauseGameLoop();
+                this.battleManager = new BattleEngine(playerActivePokemon, enemyPokemon);
+                this.battleManager.isWildBattle = isWild;
+                this.battleManager.startBattle();
+            },
+
+            // Clears the current battle manager.
+            endCurrentBattle() {
+                this.battleManager = null;
+            },
+
+            // Handles input during a battle (triggered by UI buttons).
+            handleBattleInput(actionType, moveId = null, itemId = null) {
+                if (!this.battleManager) return;
+
+                const battle = this.battleManager;
+                const playerPokemon = battle.playerPokemon;
+
+                if (battle.battleState !== 'CHOOSE_ACTION' && battle.battleState !== 'CHOOSE_MOVE' && battle.battleState !== 'CHOOSE_ITEM') {
+                    return;
+                }
+
+                switch (actionType) {
+                    case 'FIGHT':
+                        battle.battleState = 'CHOOSE_MOVE';
+                        UI.showBattleMenu('fight');
+                        break;
+                    case 'PKMN':
+                        battle.log('Not yet implemented: Switching Pokémon. (Need more than 1 Pokémon to switch!)');
+                        // TODO: Implement Pokémon switching UI and logic
+                        break;
+                    case 'ITEM':
+                        battle.battleState = 'CHOOSE_ITEM';
+                        UI.showBattleMenu('items');
+                        break;
+                    case 'RUN':
+                        battle.queuedPlayerAction = {type: 'RUN'};
+                        battle.battleState = 'PLAYER_TURN';
+                        battle.advanceTurn();
+                        break;
+                    case 'FIGHT_MOVE':
+                        const chosenMove = MOVES_DATA[moveId];
+                        if (chosenMove && playerPokemon.currentPP[chosenMove.name] > 0) {
+                            battle.queuedPlayerAction = {type: 'FIGHT', move: chosenMove};
+                            battle.battleState = 'PLAYER_TURN';
+                            UI.showBattleMenu('main'); // Go back to main battle display after choosing move
+                            battle.advanceTurn();
+                        } else {
+                            battle.log("Not enough PP or invalid move!");
+                        }
+                        break;
+                    case 'USE_ITEM':
+                        // Assuming item effects apply to active player pokemon for simplicity
+                        battle.queuedPlayerAction = {type: 'ITEM', itemId: itemId};
+                        battle.battleState = 'PLAYER_TURN';
+                        UI.showBattleMenu('main');
+                        battle.advanceTurn();
+                        break;
+                    case 'BACK_TO_MAIN_BATTLE_MENU':
+                        battle.battleState = 'CHOOSE_ACTION';
+                        UI.showBattleMenu('main');
+                        break;
+                }
+            },
+
+            // Loads a new map and positions the player.
+            loadMap(mapId, playerX, playerY) {
+                GAME_STATE.currentMap = mapId;
+                GAME_STATE.playerX = playerX;
+                GAME_STATE.playerY = playerY;
+                this.player.x = playerX;
+                this.player.y = playerY;
+                this.player.pixelX = playerX * GAME_CONFIG.TILE_SIZE;
+                this.player.pixelY = playerY * GAME_CONFIG.TILE_SIZE;
+                this.player.isMoving = false;
+                this.player.movementProgress = 0;
+                this.mapEngine.loadMap(mapId);
+                this.render();
+            },
+
+            // Saves the current game state to localStorage.
+            saveGame() {
+                localStorage.setItem('pokemonMagentaSave', JSON.stringify(GAME_STATE));
+                console.log('Game saved!');
+            },
+
+            // Loads game state from localStorage.
+            loadGame() {
+                const savedData = localStorage.getItem('pokemonMagentaSave');
+                if (savedData) {
+                    const loadedState = JSON.parse(savedData);
+                    Object.assign(GAME_STATE, loadedState);
+
+                    // Reconstruct Pokémon objects from loaded data (necessary because JSON.parse doesn't preserve class methods)
+                    GAME_STATE.playerParty = GAME_STATE.playerParty.map(data => {
+                        const pokemon = new Pokemon(data.speciesId, data.level);
+                        Object.assign(pokemon, data); // Copy properties back
+                        // Re-initialize PP object if not present or incomplete
+                        if (!pokemon.currentPP) { pokemon.currentPP = {}; }
+                        pokemon.moves.forEach(move => {
+                            if (pokemon.currentPP[move.name] === undefined) pokemon.currentPP[move.name] = MOVES_DATA[move.name].pp;
+                        });
+                        return pokemon;
+                    });
+                    GAME_STATE.playerPC = GAME_STATE.playerPC.map(data => {
+                        const pokemon = new Pokemon(data.speciesId, data.level);
+                        Object.assign(pokemon, data);
+                        return pokemon;
+                    });
+                    console.log('Game loaded!');
+                    return true;
+                }
+                console.log('No saved game found.');
+                return false;
+            },
+
+            // Utility function for pausing execution.
+            async wait(ms) {
+                return new Promise(resolve => setTimeout(resolve, ms));
+            }
+        };
+
+        // Initialize the game when the DOM is fully loaded.
+        document.addEventListener('DOMContentLoaded', () => {
+            GameManager.init();
+        });
+    </script>
+</body>
+</html>
